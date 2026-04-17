@@ -1,0 +1,49 @@
+name: ziro
+description: Ziro - Tu asistente financiero personal
+publish_to: 'none'
+version: 2.3.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI e Iconos
+  cupertino_icons: ^1.0.6
+
+  # Gestión de datos local
+  shared_preferences: ^2.2.2
+
+  # Seguridad biométrica (huella/rostro)
+  local_auth: ^2.1.6
+
+  # Para elegir fotos de las metas
+  image_picker: ^1.0.4
+
+  # Formato de monedas y fechas (español)
+  intl: ^0.18.1
+
+  # Conexión para obtener el precio del dólar (BCV/Paralelo)
+  http: ^1.1.0
+
+  # Para abrir enlaces (política de privacidad)
+  url_launcher: ^6.2.0
+
+  # Para compartir archivos (exportar datos)
+  share_plus: ^7.2.1
+
+  # Para acceder a directorios (exportar datos)
+  path_provider: ^2.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/logo_ziro.png
+    - assets/images/splash_logo.png
