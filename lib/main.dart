@@ -132,57 +132,51 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     return double.tryParse(normalized) ?? 0.0;
   }
 
-  // ==================== ACTUALIZACIÓN DE TASAS (VERSIÓN CORREGIDA) ====================
+  // ==================== ACTUALIZACIÓN DE TASAS BCV (CORREGIDO) ====================
   Future<void> _updateRates() async {
     if (_mainCurrency != "Bs") return;
 
     try {
-      final response = await http.get(Uri.parse('https://ve.dolarapi.com/v1/monedas'));
+      // Usar API confiable que obtiene datos del BCV
+      final response = await http.get(
+        Uri.parse('https://bcv-api.onrender.com/api/rates/all'),
+      ).timeout(const Duration(seconds: 10));
 
       if (mounted && response.statusCode == 200) {
-        final List<dynamic> monedas = jsonDecode(response.body);
-
+        final data = jsonDecode(response.body);
         setState(() {
-          // Buscar el Dólar (BCV)
-          final dolar = monedas.firstWhere(
-                (m) => m['nombre'] == 'Dólar' || m['codigo'] == 'USD',
-            orElse: () => null,
-          );
-          if (dolar != null) {
-            _dollarPriceBCV = (dolar['promedio'] ?? dolar['precio'] ?? 1.0).toDouble();
-            print("✅ Dólar actualizado: $_dollarPriceBCV Bs");
+          // Obtener Dólar BCV
+          if (data['USD'] != null) {
+            _dollarPriceBCV = data['USD']['rate'].toDouble();
+            print("✅ Dólar BCV: $_dollarPriceBCV Bs");
           }
 
-          // Buscar el Euro
-          final euro = monedas.firstWhere(
-                (m) => m['nombre'] == 'Euro' || m['codigo'] == 'EUR',
-            orElse: () => null,
-          );
-          if (euro != null) {
-            _euroPrice = (euro['promedio'] ?? euro['precio'] ?? 1.0).toDouble();
-            print("✅ Euro actualizado: $_euroPrice Bs");
+          // Obtener Euro BCV
+          if (data['EUR'] != null) {
+            _euroPrice = data['EUR']['rate'].toDouble();
+            print("✅ Euro BCV: $_euroPrice Bs");
           } else {
-            // Si no encuentra el Euro, calcular basado en Dólar (tasa EUR/USD ≈ 1.08)
+            // Si no encuentra Euro, calcular basado en Dólar (tasa internacional)
             _euroPrice = _dollarPriceBCV / 1.08;
-            print("⚠️ Euro no encontrado, usando cálculo: $_euroPrice Bs");
+            print("⚠️ Euro calculado: $_euroPrice Bs");
           }
         });
-      } else {
-        print("❌ Error en API /v1/monedas: ${response.statusCode}");
-        if (mounted) {
-          setState(() {
-            _euroPrice = _dollarPriceBCV / 1.08;
-          });
-        }
+        _save();
+        return;
       }
-      _save();
     } catch (e) {
-      print("❌ Excepción al obtener tasas: $e");
-      if (mounted) {
-        setState(() {
-          _euroPrice = _dollarPriceBCV / 1.08;
-        });
-      }
+      print("❌ Error en API BCV: $e");
+    }
+
+    // Fallback: Usar tasas guardadas o valores por defecto
+    if (mounted && _dollarPriceBCV == 1.0) {
+      setState(() {
+        // Tasas de referencia del BCV (se actualizarán cuando la API funcione)
+        _dollarPriceBCV = 480.2572;
+        _euroPrice = 565.41;
+        print("⚠️ Usando tasas de respaldo: USD=$_dollarPriceBCV, EUR=$_euroPrice");
+      });
+      _save();
     }
   }
 
@@ -2019,7 +2013,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                     title: const Text("Usar tasa oficial", style: TextStyle(fontSize: 13)),
                     subtitle: selCurr == "\$"
                         ? Text("1 USD = $_dollarPriceBCV Bs", style: const TextStyle(fontSize: 11))
-                        : const Text(""),
+                        : Text("1 EUR = $_euroPrice Bs", style: const TextStyle(fontSize: 11)),
                     value: convertOnFly,
                     onChanged: (v) => setS(() => convertOnFly = v),
                     contentPadding: EdgeInsets.zero,
