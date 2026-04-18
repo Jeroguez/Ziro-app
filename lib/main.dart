@@ -1,7 +1,7 @@
 /// ***************************************************************
-///  APP: ZIRO 
+///  APP: ZIRO
 ///  AUTHOR: Jeroguez
-///  VERSION: 2.3 COMPLETA (Ahorro Real + Estadísticas Limpias)
+///  VERSION: 2.4 COMPLETA (Ahorro Real + Estadísticas Limpias + Euro)
 /// ***************************************************************
 
 import 'package:flutter/material.dart';
@@ -20,10 +20,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Inicializar localización para español
+
   await initializeDateFormatting('es', null);
-  
+
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -38,7 +37,7 @@ class Entry {
   String id, title, type, category, currency;
   double amount;
   Entry({required this.id, required this.title, required this.amount, required this.type, this.category = "Otros", this.currency = "Bs"});
-  
+
   Map<String, dynamic> toMap() => {'id': id, 'title': title, 'amount': amount, 'type': type, 'category': category, 'currency': currency};
   factory Entry.fromMap(Map<String, dynamic> m) => Entry(id: m['id'], title: m['title'], amount: m['amount'], type: m['type'], category: m['category'] ?? "Otros", currency: m['currency'] ?? "Bs");
 }
@@ -51,8 +50,8 @@ class Goal {
 
   Map<String, dynamic> toMap() => {'name': name, 'targetAmount': targetAmount, 'imagePath': imagePath, 'currency': currency, 'savedAmount': savedAmount};
   factory Goal.fromMap(Map<String, dynamic> m) => Goal(
-    name: m['name'], targetAmount: m['targetAmount'], imagePath: m['imagePath'],
-    currency: m['currency'] ?? "\$", savedAmount: (m['savedAmount'] ?? 0.0).toDouble()
+      name: m['name'], targetAmount: m['targetAmount'], imagePath: m['imagePath'],
+      currency: m['currency'] ?? "\$", savedAmount: (m['savedAmount'] ?? 0.0).toDouble()
   );
 }
 
@@ -65,22 +64,21 @@ class ZiroApp extends StatefulWidget {
 class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
   final LocalAuthentication auth = LocalAuthentication();
   final NumberFormat _f = NumberFormat.decimalPattern('es_ES');
-  
+
   List<Entry> _entries = [];
   Goal? _currentGoal;
   String _userName = "", _mainCurrency = "Bs";
   double _initialMain = 0.0, _initialSec = 0.0, _emergencyFund = 0.0;
-  
+
   double _dollarPriceBCV = 1.0;
-  double _dollarPriceParalelo = 1.0;
+  double _euroPrice = 1.0;
 
   bool _isFirstTime = true, _isAuthorized = false;
   int _selectedTabIndex = 0;
-  
-  // Variables para onboarding
+
   bool _showTutorial = false;
   bool _tutorialCompleted = false;
-  
+
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
   late AnimationController _slideController;
@@ -102,7 +100,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     super.initState();
     _initAnimations();
     _load();
-    _updateDollar();
+    _updateRates();
   }
 
   void _initAnimations() {
@@ -134,20 +132,57 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     return double.tryParse(normalized) ?? 0.0;
   }
 
-  Future<void> _updateDollar() async {
+  // ==================== ACTUALIZACIÓN DE TASAS (VERSIÓN CORREGIDA) ====================
+  Future<void> _updateRates() async {
     if (_mainCurrency != "Bs") return;
+
     try {
-      final resBCV = await http.get(Uri.parse('https://ve.dolarapi.com/v1/dolares/oficial'));
-      final resPar = await http.get(Uri.parse('https://ve.dolarapi.com/v1/dolares/paralelo'));
-      if (mounted) {
+      final response = await http.get(Uri.parse('https://ve.dolarapi.com/v1/monedas'));
+
+      if (mounted && response.statusCode == 200) {
+        final List<dynamic> monedas = jsonDecode(response.body);
+
         setState(() {
-          if (resBCV.statusCode == 200) _dollarPriceBCV = (jsonDecode(resBCV.body)['promedio']).toDouble();
-          if (resPar.statusCode == 200) _dollarPriceParalelo = (jsonDecode(resPar.body)['promedio']).toDouble();
+          // Buscar el Dólar (BCV)
+          final dolar = monedas.firstWhere(
+                (m) => m['nombre'] == 'Dólar' || m['codigo'] == 'USD',
+            orElse: () => null,
+          );
+          if (dolar != null) {
+            _dollarPriceBCV = (dolar['promedio'] ?? dolar['precio'] ?? 1.0).toDouble();
+            print("✅ Dólar actualizado: $_dollarPriceBCV Bs");
+          }
+
+          // Buscar el Euro
+          final euro = monedas.firstWhere(
+                (m) => m['nombre'] == 'Euro' || m['codigo'] == 'EUR',
+            orElse: () => null,
+          );
+          if (euro != null) {
+            _euroPrice = (euro['promedio'] ?? euro['precio'] ?? 1.0).toDouble();
+            print("✅ Euro actualizado: $_euroPrice Bs");
+          } else {
+            // Si no encuentra el Euro, calcular basado en Dólar (tasa EUR/USD ≈ 1.08)
+            _euroPrice = _dollarPriceBCV / 1.08;
+            print("⚠️ Euro no encontrado, usando cálculo: $_euroPrice Bs");
+          }
         });
+      } else {
+        print("❌ Error en API /v1/monedas: ${response.statusCode}");
+        if (mounted) {
+          setState(() {
+            _euroPrice = _dollarPriceBCV / 1.08;
+          });
+        }
       }
       _save();
     } catch (e) {
-      print("Error obteniendo tasas: $e");
+      print("❌ Excepción al obtener tasas: $e");
+      if (mounted) {
+        setState(() {
+          _euroPrice = _dollarPriceBCV / 1.08;
+        });
+      }
     }
   }
 
@@ -186,13 +221,12 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
         _initialSec = p.getDouble('u_sec_val') ?? 0.0;
         _emergencyFund = p.getDouble('u_emergency') ?? 0.0;
         _dollarPriceBCV = p.getDouble('u_dollar_bcv') ?? 1.0;
-        _dollarPriceParalelo = p.getDouble('u_dollar_par') ?? 1.0;
+        _euroPrice = p.getDouble('u_euro') ?? 1.0;
         _isFirstTime = _userName.isEmpty;
-        
-        // Cargar estado del tutorial
+
         _tutorialCompleted = p.getBool('tutorial_completed') ?? false;
         _showTutorial = !_tutorialCompleted && !_isFirstTime;
-        
+
         final String? data = p.getString('z_db_v14');
         if (data != null) _entries = (jsonDecode(data) as List).map((e) => Entry.fromMap(e)).toList();
         final String? goalData = p.getString('z_goal_v14');
@@ -210,10 +244,9 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     await p.setDouble('u_sec_val', _initialSec);
     await p.setDouble('u_emergency', _emergencyFund);
     await p.setDouble('u_dollar_bcv', _dollarPriceBCV);
-    await p.setDouble('u_dollar_par', _dollarPriceParalelo);
+    await p.setDouble('u_euro', _euroPrice);
     await p.setString('z_db_v14', jsonEncode(_entries.map((e) => e.toMap()).toList()));
     if (_currentGoal != null) await p.setString('z_goal_v14', jsonEncode(_currentGoal!.toMap()));
-    // Guardar estado del tutorial
     await p.setBool('tutorial_completed', _tutorialCompleted);
   }
 
@@ -223,7 +256,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     final n = TextEditingController();
     final b = TextEditingController();
     final u = TextEditingController();
-    
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -356,12 +389,10 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                           _initialSec = _parseAmount(u.text);
                           _isFirstTime = false;
                           _isAuthorized = true;
-                          
-                          // Activar tutorial después de configuración
                           _showTutorial = true;
                         });
                         _save();
-                        _updateDollar();
+                        _updateRates();
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -424,10 +455,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     if (_isFirstTime) return _buildSetup();
-    
-    // Mostrar tutorial si es necesario
     if (_showTutorial) return _buildTutorial();
-    
     if (!_isAuthorized) return _lockScreen();
 
     double availableMain = _initialMain;
@@ -610,35 +638,70 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                     ],
                   ),
                   if (_mainCurrency == "Bs")
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: Colors.green,
-                              shape: BoxShape.circle,
-                            ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            "BCV ${_f.format(_dollarPriceBCV)}",
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                        ],
-                      ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Colors.green,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                "BCV ${_f.format(_dollarPriceBCV)}",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF00A86B),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                "EUR ${_f.format(_euroPrice)}",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                 ],
               ),
@@ -724,13 +787,15 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                     Row(
                       children: [
                         _buildMiniRateChip(
-                          label: "BCV",
-                          value: mainBalance / _dollarPriceBCV,
+                          label: "EUR",
+                          value: mainBalance / _euroPrice,
+                          color: const Color(0xFF00A86B),
                         ),
                         const SizedBox(width: 8),
                         _buildMiniRateChip(
-                          label: "PAR",
-                          value: mainBalance / _dollarPriceParalelo,
+                          label: "USD",
+                          value: mainBalance / _dollarPriceBCV,
+                          color: Colors.green,
                         ),
                       ],
                     ),
@@ -817,16 +882,16 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildMiniRateChip({required String label, required double value}) {
+  Widget _buildMiniRateChip({required String label, required double value, required Color color}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
+        color: color.withOpacity(0.2),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
-        "$label: \$${_f.format(value)}",
-        style: const TextStyle(
+        "$label: ${_f.format(value)}",
+        style: TextStyle(
           color: Colors.white,
           fontSize: 8,
           fontWeight: FontWeight.w600,
@@ -924,7 +989,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
 
   Widget _buildGoalCard() {
     double progress = (_currentGoal!.savedAmount /
-            (_currentGoal!.targetAmount > 0 ? _currentGoal!.targetAmount : 1))
+        (_currentGoal!.targetAmount > 0 ? _currentGoal!.targetAmount : 1))
         .clamp(0.0, 1.0);
 
     return GestureDetector(
@@ -962,17 +1027,17 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                   ),
                   child: _currentGoal!.imagePath.isNotEmpty
                       ? ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Image.file(
-                            File(_currentGoal!.imagePath),
-                            fit: BoxFit.cover,
-                          ),
-                        )
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.file(
+                      File(_currentGoal!.imagePath),
+                      fit: BoxFit.cover,
+                    ),
+                  )
                       : const Icon(
-                          Icons.emoji_events_outlined,
-                          color: Colors.purple,
-                          size: 28,
-                        ),
+                    Icons.emoji_events_outlined,
+                    color: Colors.purple,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -1303,27 +1368,21 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
   double _getCurrentMonthIncome() {
     final now = DateTime.now();
     return _entries
-        .where((e) => 
-            e.type == 'ingreso' && 
-            _isSameMonth(DateTime.parse(e.id), now))
+        .where((e) => e.type == 'ingreso' && _isSameMonth(DateTime.parse(e.id), now))
         .fold(0.0, (sum, e) => sum + _convertToMainCurrency(e));
   }
 
   double _getCurrentMonthExpenses() {
     final now = DateTime.now();
     return _entries
-        .where((e) => 
-            e.type == 'gasto' && 
-            _isSameMonth(DateTime.parse(e.id), now))
+        .where((e) => e.type == 'gasto' && _isSameMonth(DateTime.parse(e.id), now))
         .fold(0.0, (sum, e) => sum + _convertToMainCurrency(e));
   }
 
   double _getCurrentMonthSavings() {
     final now = DateTime.now();
     return _entries
-        .where((e) => 
-            e.type == 'ahorro' && 
-            _isSameMonth(DateTime.parse(e.id), now))
+        .where((e) => e.type == 'ahorro' && _isSameMonth(DateTime.parse(e.id), now))
         .fold(0.0, (sum, e) => sum + _convertToMainCurrency(e));
   }
 
@@ -1334,24 +1393,24 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
   double _convertToMainCurrency(Entry entry) {
     if (entry.currency == _mainCurrency) {
       return entry.amount;
+    } else if (entry.currency == "\$") {
+      return entry.amount * _dollarPriceBCV;
+    } else if (entry.currency == "€") {
+      return entry.amount * _euroPrice;
     } else {
-      double avgRate = (_dollarPriceBCV + _dollarPriceParalelo) / 2;
-      return entry.amount * avgRate;
+      return entry.amount;
     }
   }
 
   Map<String, double> _getCurrentMonthExpensesByCategory() {
     final now = DateTime.now();
     Map<String, double> result = {};
-    
-    for (var entry in _entries.where((e) => 
-        e.type == 'gasto' && 
-        _isSameMonth(DateTime.parse(e.id), now))) {
-      
+
+    for (var entry in _entries.where((e) => e.type == 'gasto' && _isSameMonth(DateTime.parse(e.id), now))) {
       double amount = _convertToMainCurrency(entry);
       result[entry.category] = (result[entry.category] ?? 0) + amount;
     }
-    
+
     return result;
   }
 
@@ -1386,7 +1445,6 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
             ],
           ),
         ),
-        
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -1513,9 +1571,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
             ],
           ),
         ),
-        
         const SizedBox(height: 24),
-        
         if (monthlyExpensesByCategory.isNotEmpty) ...[
           Container(
             padding: const EdgeInsets.all(16),
@@ -1544,7 +1600,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                 ...monthlyExpensesByCategory.entries.map((entry) {
                   double percentage = (entry.value / monthlyExpenses) * 100;
                   Color categoryColor = _getCategoryColor(entry.key);
-                  
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Column(
@@ -1599,9 +1655,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
             ),
           ),
         ],
-        
         const SizedBox(height: 24),
-        
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -1635,7 +1689,6 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
             ],
           ),
         ),
-        
         const SizedBox(height: 40),
       ],
     );
@@ -1728,7 +1781,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
         const SizedBox(height: 30),
         Center(
           child: Text(
-            "Ziro v2.3",
+            "Ziro v2.4",
             style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
           ),
         ),
@@ -1823,7 +1876,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     try {
       final exportData = {
         'appName': 'Ziro',
-        'version': '2.3.0',
+        'version': '2.4.0',
         'exportDate': DateTime.now().toIso8601String(),
         'userData': {
           'userName': _userName,
@@ -1833,24 +1886,24 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
           'emergencyFund': _emergencyFund,
           'dollarRates': {
             'BCV': _dollarPriceBCV,
-            'Paralelo': _dollarPriceParalelo,
+            'Euro': _euroPrice,
           },
         },
         'entries': _entries.map((e) => e.toMap()).toList(),
         'goal': _currentGoal?.toMap(),
       };
-      
+
       final jsonString = jsonEncode(exportData);
       final tempDir = await getTemporaryDirectory();
       final fileName = 'ziro_backup_${DateTime.now().millisecondsSinceEpoch}.json';
       final file = File('${tempDir.path}/$fileName');
       await file.writeAsString(jsonString);
-      
+
       await Share.shareXFiles(
         [XFile(file.path)],
         text: 'Exportación de datos de Ziro - ${DateTime.now().toLocal()}',
       );
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Datos exportados correctamente')),
       );
@@ -1862,9 +1915,8 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
   }
 
   void _showPrivacyPolicy() async {
-    // ✅ URL CORRECTA DE TU POLÍTICA DE PRIVACIDAD
     final Uri url = Uri.parse('https://jeroguez.github.io/ziro-privacy-policy/privacy_policy.html');
-    
+
     try {
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -1964,8 +2016,10 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                 ),
                 if (_mainCurrency == "Bs" && (selCurr != _mainCurrency))
                   SwitchListTile(
-                    title: const Text("Usar Tasa BCV", style: TextStyle(fontSize: 13)),
-                    subtitle: Text("1 USD = $_dollarPriceBCV Bs", style: const TextStyle(fontSize: 11)),
+                    title: const Text("Usar tasa oficial", style: TextStyle(fontSize: 13)),
+                    subtitle: selCurr == "\$"
+                        ? Text("1 USD = $_dollarPriceBCV Bs", style: const TextStyle(fontSize: 11))
+                        : const Text(""),
                     value: convertOnFly,
                     onChanged: (v) => setS(() => convertOnFly = v),
                     contentPadding: EdgeInsets.zero,
@@ -2034,7 +2088,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                               if (selCurr == "\$") {
                                 finalVal = val * _dollarPriceBCV;
                                 finalCurr = _mainCurrency;
-                              } else {
+                              } else if (selCurr == _mainCurrency) {
                                 finalVal = val / _dollarPriceBCV;
                                 finalCurr = "\$";
                               }
@@ -2069,8 +2123,8 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                                 double valGoal = (finalCurr == _currentGoal!.currency)
                                     ? finalVal
                                     : (finalCurr == _mainCurrency
-                                        ? finalVal / _dollarPriceBCV
-                                        : finalVal * _dollarPriceBCV);
+                                    ? finalVal / _dollarPriceBCV
+                                    : finalVal * _dollarPriceBCV);
                                 _currentGoal!.savedAmount += valGoal;
                               }
                             });
@@ -2625,9 +2679,9 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          source == "Saldo actual" 
-                            ? "Se restará de tu saldo en $currency"
-                            : "Se agregará directamente sin afectar tu saldo",
+                          source == "Saldo actual"
+                              ? "Se restará de tu saldo en $currency"
+                              : "Se agregará directamente sin afectar tu saldo",
                           style: TextStyle(
                             fontSize: 12,
                             color: source == "Saldo actual" ? Colors.blue.shade700 : Colors.green.shade700,
@@ -2659,10 +2713,9 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                             setState(() {
                               double montoEnMain = monto;
                               if (currency == "\$") {
-                                double avgRate = (_dollarPriceBCV + _dollarPriceParalelo) / 2;
-                                montoEnMain = monto * avgRate;
+                                montoEnMain = monto * _dollarPriceBCV;
                               }
-                              
+
                               if (source == "Saldo actual") {
                                 bool hasEnough = false;
                                 if (currency == _mainCurrency && _initialMain >= monto) {
@@ -2672,7 +2725,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                                   _initialSec -= monto;
                                   hasEnough = true;
                                 }
-                                
+
                                 if (hasEnough) {
                                   _entries.insert(
                                     0,
@@ -2708,7 +2761,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                                   ),
                                 );
                               }
-                              
+
                               _emergencyFund += montoEnMain;
                             });
                             _save();
@@ -2826,23 +2879,22 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                       child: ElevatedButton(
                         onPressed: () {
                           double monto = _parseAmount(a.text);
-                          
+
                           double montoEnMain = monto;
                           if (currency == "\$") {
-                            double avgRate = (_dollarPriceBCV + _dollarPriceParalelo) / 2;
-                            montoEnMain = monto * avgRate;
+                            montoEnMain = monto * _dollarPriceBCV;
                           }
-                          
+
                           if (monto > 0 && montoEnMain <= _emergencyFund) {
                             setState(() {
                               _emergencyFund -= montoEnMain;
-                              
+
                               if (currency == _mainCurrency) {
                                 _initialMain += monto;
                               } else {
                                 _initialSec += monto;
                               }
-                              
+
                               _entries.insert(
                                 0,
                                 Entry(
@@ -3016,19 +3068,19 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
               const SizedBox(height: 16),
               ...["Bs", "COP", "MXN", "€", "USD", "PEN", "ARS", "CLP"]
                   .map((currency) => ListTile(
-                        title: Text(currency),
-                        leading: Radio<String>(
-                          value: currency,
-                          groupValue: _mainCurrency,
-                          onChanged: (v) {
-                            if (v != null) {
-                              setState(() => _mainCurrency = v);
-                              _save();
-                              Navigator.pop(c);
-                            }
-                          },
-                        ),
-                      )),
+                title: Text(currency),
+                leading: Radio<String>(
+                  value: currency,
+                  groupValue: _mainCurrency,
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() => _mainCurrency = v);
+                      _save();
+                      Navigator.pop(c);
+                    }
+                  },
+                ),
+              )),
             ],
           ),
         ),
@@ -3099,7 +3151,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                       _buildTutorialPage(
                         icon: Icons.attach_money,
                         title: "TUS SALDOS",
-                        description: "La app muestra tu dinero en dos monedas:\n\n💰 ${_mainCurrency}: Tu moneda local\n💵 Dólares (\$): Para operaciones en USD\n\n📊 Los precios del dólar (BCV y Paralelo) se actualizan automáticamente desde internet cuando estás en Venezuela.",
+                        description: "La app muestra tu dinero en dos monedas:\n\n💰 ${_mainCurrency}: Tu moneda local\n💵 Dólares (\$): Para operaciones en USD\n\n📊 Los precios del dólar (BCV) y Euro se actualizan automáticamente desde internet cuando estás en Venezuela.",
                         action: "Siempre actualizado",
                         color: Colors.blue.shade900,
                       ),
@@ -3148,7 +3200,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                       _buildTutorialPage(
                         icon: Icons.currency_exchange,
                         title: "CONVERSOR AUTOMÁTICO",
-                        description: "Cuando agregas dinero en dólares:\n\n💱 Se convierte automáticamente a $_mainCurrency usando la tasa promedio (BCV + Paralelo) / 2\n\n🔄 El fondo de emergencia siempre se guarda en $_mainCurrency para consistencia\n\n📊 Las estadísticas convierten todo a $_mainCurrency para comparar correctamente",
+                        description: "Cuando agregas dinero en dólares o euros:\n\n💱 Se convierte automáticamente a $_mainCurrency usando la tasa oficial\n\n🔄 El fondo de emergencia siempre se guarda en $_mainCurrency para consistencia\n\n📊 Las estadísticas convierten todo a $_mainCurrency para comparar correctamente",
                         action: "Todo en una sola moneda",
                         color: Colors.amber.shade800,
                       ),
