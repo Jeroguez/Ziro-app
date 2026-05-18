@@ -1,7 +1,9 @@
 /// ***************************************************************
 ///  APP: ZIRO
 ///  AUTHOR: Jeroguez
-///  VERSION: 2.4
+///  VERSION: 2.4 COMPLETA (Ahorro Real + Estadísticas Limpias + Euro)
+///  API BCV: https://bcv-api.onrender.com/api/rates/all
+///  ACTUALIZACIÓN DIARIA AUTOMÁTICA
 /// ***************************************************************
 
 import 'package:flutter/material.dart';
