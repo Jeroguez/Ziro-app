@@ -2,6 +2,7 @@
 ///  APP: ZIRO
 ///  AUTHOR: Jeroguez
 ///  VERSION: 2.4 COMPLETA (Ahorro Real + Estadísticas Limpias + Euro)
+///  TASAS BCV ACTUALIZACIÓN DIARIA AUTOMÁTICA
 /// ***************************************************************
 
 import 'package:flutter/material.dart';
@@ -78,7 +79,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
 
   bool _showTutorial = false;
   bool _tutorialCompleted = false;
-  bool _showWhatsNew = false; // 👈 NUEVO: para novedades
+  bool _showWhatsNew = false;
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -133,10 +134,39 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     return double.tryParse(normalized) ?? 0.0;
   }
 
-  // ==================== ACTUALIZACIÓN DE TASAS BCV ====================
+  // ==================== ACTUALIZACIÓN DE TASAS BCV (ACTUALIZACIÓN DIARIA AUTOMÁTICA) ====================
   Future<void> _updateRates() async {
     if (_mainCurrency != "Bs") return;
 
+    // API de PydolarVenezuela - La más confiable, se actualiza DIARIAMENTE con el BCV
+    try {
+      final response = await http.get(
+        Uri.parse('https://pydolarvenezuela-api.onrender.com/api/v1/bcv'),
+      ).timeout(const Duration(seconds: 15));
+
+      if (mounted && response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        if (data['USD'] != null && data['USD']['price'] != null) {
+          final double usdRate = data['USD']['price'].toDouble();
+          final double eurRate = data['EUR']['price'].toDouble();
+
+          setState(() {
+            _dollarPriceBCV = usdRate;
+            _euroPrice = eurRate;
+          });
+          _save();
+          print("✅ Tasas BCV actualizadas DIARIAMENTE:");
+          print("   🇺🇸 USD: $_dollarPriceBCV Bs");
+          print("   🇪🇺 EUR: $_euroPrice Bs");
+          return;
+        }
+      }
+    } catch (e) {
+      print("❌ Error en API principal: $e");
+    }
+
+    // API RESERVA 2: BCV API
     try {
       final response = await http.get(
         Uri.parse('https://bcv-api.onrender.com/api/rates/all'),
@@ -144,33 +174,30 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
 
       if (mounted && response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        setState(() {
-          if (data['USD'] != null) {
+
+        if (data['USD'] != null && data['USD']['rate'] != null) {
+          setState(() {
             _dollarPriceBCV = data['USD']['rate'].toDouble();
-            print("✅ Dólar BCV: $_dollarPriceBCV Bs");
-          }
-          if (data['EUR'] != null) {
-            _euroPrice = data['EUR']['rate'].toDouble();
-            print("✅ Euro BCV: $_euroPrice Bs");
-          } else {
-            _euroPrice = _dollarPriceBCV / 1.08;
-            print("⚠️ Euro calculado: $_euroPrice Bs");
-          }
-        });
-        _save();
-        return;
+            if (data['EUR'] != null && data['EUR']['rate'] != null) {
+              _euroPrice = data['EUR']['rate'].toDouble();
+            } else {
+              _euroPrice = _dollarPriceBCV * 1.16;
+            }
+          });
+          _save();
+          print("✅ Tasas BCV actualizadas (reserva): USD=$_dollarPriceBCV, EUR=$_euroPrice");
+          return;
+        }
       }
     } catch (e) {
-      print("❌ Error en API BCV: $e");
+      print("❌ Error en API reserva: $e");
     }
 
-    if (mounted && _dollarPriceBCV == 1.0) {
-      setState(() {
-        _dollarPriceBCV = 480.2572;
-        _euroPrice = 565.41;
-        print("⚠️ Usando tasas de respaldo: USD=$_dollarPriceBCV, EUR=$_euroPrice");
-      });
-      _save();
+    // Si todo falla, mantener las tasas previamente guardadas
+    if (mounted) {
+      print("⚠️ No se pudieron actualizar las tasas. Manteniendo valores anteriores.");
+      print("   USD: $_dollarPriceBCV Bs");
+      print("   EUR: $_euroPrice Bs");
     }
   }
 
@@ -221,7 +248,6 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
         if (goalData != null) _currentGoal = Goal.fromMap(jsonDecode(goalData));
       });
 
-      // 👈 VERIFICAR NOVEDADES
       _checkWhatsNew();
     }
     if (!_isFirstTime) _authenticate();
@@ -779,7 +805,6 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              // 👇 BADGE DE NUEVO
                               if (!_showWhatsNew && !_isFirstTime && _tutorialCompleted)
                                 Container(
                                   margin: const EdgeInsets.only(left: 8),
