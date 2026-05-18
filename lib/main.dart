@@ -78,6 +78,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
 
   bool _showTutorial = false;
   bool _tutorialCompleted = false;
+  bool _showWhatsNew = false; // 👈 NUEVO: para novedades
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -132,12 +133,11 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     return double.tryParse(normalized) ?? 0.0;
   }
 
-  // ==================== ACTUALIZACIÓN DE TASAS BCV (CORREGIDO) ====================
+  // ==================== ACTUALIZACIÓN DE TASAS BCV ====================
   Future<void> _updateRates() async {
     if (_mainCurrency != "Bs") return;
 
     try {
-      // Usar API confiable que obtiene datos del BCV
       final response = await http.get(
         Uri.parse('https://bcv-api.onrender.com/api/rates/all'),
       ).timeout(const Duration(seconds: 10));
@@ -145,18 +145,14 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
       if (mounted && response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
-          // Obtener Dólar BCV
           if (data['USD'] != null) {
             _dollarPriceBCV = data['USD']['rate'].toDouble();
             print("✅ Dólar BCV: $_dollarPriceBCV Bs");
           }
-
-          // Obtener Euro BCV
           if (data['EUR'] != null) {
             _euroPrice = data['EUR']['rate'].toDouble();
             print("✅ Euro BCV: $_euroPrice Bs");
           } else {
-            // Si no encuentra Euro, calcular basado en Dólar (tasa internacional)
             _euroPrice = _dollarPriceBCV / 1.08;
             print("⚠️ Euro calculado: $_euroPrice Bs");
           }
@@ -168,10 +164,8 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
       print("❌ Error en API BCV: $e");
     }
 
-    // Fallback: Usar tasas guardadas o valores por defecto
     if (mounted && _dollarPriceBCV == 1.0) {
       setState(() {
-        // Tasas de referencia del BCV (se actualizarán cuando la API funcione)
         _dollarPriceBCV = 480.2572;
         _euroPrice = 565.41;
         print("⚠️ Usando tasas de respaldo: USD=$_dollarPriceBCV, EUR=$_euroPrice");
@@ -226,6 +220,9 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
         final String? goalData = p.getString('z_goal_v14');
         if (goalData != null) _currentGoal = Goal.fromMap(jsonDecode(goalData));
       });
+
+      // 👈 VERIFICAR NOVEDADES
+      _checkWhatsNew();
     }
     if (!_isFirstTime) _authenticate();
   }
@@ -242,6 +239,166 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     await p.setString('z_db_v14', jsonEncode(_entries.map((e) => e.toMap()).toList()));
     if (_currentGoal != null) await p.setString('z_goal_v14', jsonEncode(_currentGoal!.toMap()));
     await p.setBool('tutorial_completed', _tutorialCompleted);
+  }
+
+  // ==================== WHAT'S NEW DIALOG ====================
+
+  void _checkWhatsNew() async {
+    final p = await SharedPreferences.getInstance();
+    final bool hasSeenWhatsNew = p.getBool('whats_new_v24') ?? false;
+
+    if (!hasSeenWhatsNew && !_isFirstTime && _tutorialCompleted) {
+      setState(() {
+        _showWhatsNew = true;
+      });
+      _showWhatsNewDialog();
+    }
+  }
+
+  void _showWhatsNewDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF00A86B), Color(0xFF2E7D32)],
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.celebration, size: 45, color: Colors.white),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                "✨ ¡NOVEDADES! ✨",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Ziro v2.4",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Divider(),
+              _buildWhatsNewItem(
+                icon: Icons.euro_symbol,
+                color: const Color(0xFF00A86B),
+                title: "🇪🇺 Tasa oficial del Euro",
+                description: "Ahora Ziro obtiene la tasa del Euro (EUR) directamente del Banco Central de Venezuela. ¡Actualización automática!",
+              ),
+              _buildWhatsNewItem(
+                icon: Icons.currency_exchange,
+                color: Colors.blue,
+                title: "💱 Conversor automático",
+                description: "Tu saldo en Bolívares se muestra también en Euros y Dólares con tasas oficiales del BCV.",
+              ),
+              _buildWhatsNewItem(
+                icon: Icons.bar_chart,
+                color: Colors.purple,
+                title: "📊 Estadísticas mejoradas",
+                description: "Tus ingresos, gastos y ahorros ahora se convierten correctamente entre Bs, USD y EUR.",
+              ),
+              _buildWhatsNewItem(
+                icon: Icons.speed,
+                color: Colors.orange,
+                title: "⚡ Más rápido y confiable",
+                description: "Mejor manejo de errores y tasas de respaldo si no hay internet.",
+              ),
+              const Divider(),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () async {
+                  final p = await SharedPreferences.getInstance();
+                  await p.setBool('whats_new_v24', true);
+                  setState(() {
+                    _showWhatsNew = false;
+                  });
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: const Text(
+                  "¡COMENZAR!",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWhatsNewItem({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String description,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade600,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ==================== PANTALLA DE CONFIGURACIÓN INICIAL ====================
@@ -613,12 +770,36 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            "Hola, $_userName",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                "Hola, $_userName",
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              // 👇 BADGE DE NUEVO
+                              if (!_showWhatsNew && !_isFirstTime && _tutorialCompleted)
+                                Container(
+                                  margin: const EdgeInsets.only(left: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF00A86B), Color(0xFF2E7D32)],
+                                    ),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: const Text(
+                                    "NUEVO",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                           Text(
                             "Bienvenido",
@@ -3112,7 +3293,7 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                   padding: const EdgeInsets.all(20),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(10, (index) {
+                    children: List.generate(11, (index) {
                       return AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -3145,63 +3326,63 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
                       _buildTutorialPage(
                         icon: Icons.attach_money,
                         title: "TUS SALDOS",
-                        description: "La app muestra tu dinero en dos monedas:\n\n💰 ${_mainCurrency}: Tu moneda local\n💵 Dólares (\$): Para operaciones en USD\n\n📊 Los precios del dólar (BCV) y Euro se actualizan automáticamente desde internet cuando estás en Venezuela.",
-                        action: "Siempre actualizado",
+                        description: "La app muestra tu dinero en dos monedas:\n\n💰 ${_mainCurrency}: Tu moneda local\n💵 Dólares (\$): Para operaciones en USD\n🇪🇺 Euros (€): Conversión automática\n\n📊 Los precios del dólar y Euro se actualizan automáticamente desde el BCV.",
+                        action: "Dólar y Euro BCV",
                         color: Colors.blue.shade900,
                       ),
                       _buildTutorialPage(
                         icon: Icons.bolt,
                         title: "ACCIONES RÁPIDAS",
-                        description: "Con 4 botones puedes hacer todo:\n\n💰 INGRESO: Cuando recibes dinero (sueldo, regalos, etc.)\n💸 GASTO: Cuando pagas algo (comida, transporte, etc.)\n🏦 AHORRO: Para tu meta de ahorro\n🎯 META: Crea objetivos financieros",
+                        description: "Con 4 botones puedes hacer todo:\n\n💰 INGRESO: Cuando recibes dinero\n💸 GASTO: Cuando pagas algo\n🏦 AHORRO: Para tu meta de ahorro\n🎯 META: Crea objetivos financieros",
                         action: "Registra en segundos",
                         color: Colors.green.shade800,
                       ),
                       _buildTutorialPage(
                         icon: Icons.emoji_events,
                         title: "METAS DE AHORRO",
-                        description: "¿Quieres comprar algo especial?\n\n✅ Crea una meta con foto\n✅ Ahorra poco a poco\n✅ Ve tu progreso en %\n✅ Celebra cuando la cumplas\n\n💡 Puedes ahorrar desde tu saldo o con dinero externo",
+                        description: "¿Quieres comprar algo especial?\n\n✅ Crea una meta con foto\n✅ Ahorra poco a poco\n✅ Ve tu progreso en %\n✅ Celebra cuando la cumplas",
                         action: "Convierte sueños en realidad",
                         color: Colors.purple,
                       ),
                       _buildTutorialPage(
                         icon: Icons.shield,
                         title: "FONDO DE EMERGENCIA",
-                        description: "Tu colchón financiero para imprevistos:\n\n🛡️ AGREGAR: Puedes elegir:\n   • Desde tu saldo (se resta automáticamente)\n   • Dinero externo (no afecta tu saldo)\n   • En Bs o Dólares (se convierte solo)\n\n⚠️ RETIRAR: Solo para EMERGENCIAS REALES\n   • Médicas, reparaciones urgentes\n   • Devuelve el dinero a tu saldo",
+                        description: "Tu colchón financiero para imprevistos:\n\n🛡️ AGREGAR: Desde tu saldo o dinero externo\n⚠️ RETIRAR: Solo para EMERGENCIAS REALES",
                         action: "Prepárate para lo inesperado",
                         color: Colors.red,
                       ),
                       _buildTutorialPage(
                         icon: Icons.history,
                         title: "HISTORIAL",
-                        description: "Cada movimiento queda registrado:\n\n📝 Toca cualquier registro para:\n   • Editar concepto o monto\n   • Eliminar si te equivocaste\n\n🔄 Los últimos 5 movimientos se ven en inicio\n📊 En estadísticas ves el mes completo",
+                        description: "Cada movimiento queda registrado:\n\n📝 Toca cualquier registro para editar o eliminar\n🔄 Los últimos 5 movimientos se ven en inicio\n📊 En estadísticas ves el mes completo",
                         action: "Nunca pierdas la pista",
                         color: Colors.orange,
                       ),
                       _buildTutorialPage(
                         icon: Icons.bar_chart,
-                        title: "ESTADÍSTICAS DEL MES",
-                        description: "Análisis completo de tu mes:\n\n📈 Ingresos totales del mes\n📉 Gastos por categoría\n💰 Ahorro real (solo movimientos 'ahorro')\n\n🎯 Desglose por categorías:\n   • Comida 🍔\n   • Transporte 🚗\n   • Servicios 💡\n   • Ocio 🎮\n   • Salud 🏥\n   • Educación 📚\n   • Emergencia ⚠️",
+                        title: "ESTADÍSTICAS",
+                        description: "Análisis completo de tu mes:\n\n📈 Ingresos totales\n📉 Gastos por categoría\n💰 Ahorro real\n🎯 Desglose en porcentajes",
                         action: "Descubre tus hábitos",
                         color: Colors.green,
                       ),
                       _buildTutorialPage(
-                        icon: Icons.calendar_month,
-                        title: "RESUMEN MENSUAL",
-                        description: "En la pestaña de estadísticas encontrarás:\n\n✅ Ingresos vs Gastos del mes\n✅ Ahorro acumulado\n✅ Alerta si gastaste más de lo que ingresaste\n✅ Balance general total\n\n💡 Consejo: Revisa tus estadísticas cada mes para mejorar tus finanzas",
-                        action: "Control total mensual",
-                        color: Colors.teal,
+                        icon: Icons.euro_symbol,
+                        title: "🇪🇺 NUEVO: EURO BCV",
+                        description: "✨ Novedad de Ziro v2.4 ✨\n\nZiro ahora obtiene la tasa oficial del Euro directamente del Banco Central de Venezuela.\n\n🇪🇺 1 EUR = X Bs (actualizado automáticamente)\n\n💰 Tu saldo en Bolívares también se muestra en Euros\n\n📊 Las estadísticas convierten todo correctamente",
+                        action: "Tasa oficial actualizada",
+                        color: const Color(0xFF00A86B),
                       ),
                       _buildTutorialPage(
                         icon: Icons.currency_exchange,
                         title: "CONVERSOR AUTOMÁTICO",
-                        description: "Cuando agregas dinero en dólares o euros:\n\n💱 Se convierte automáticamente a $_mainCurrency usando la tasa oficial\n\n🔄 El fondo de emergencia siempre se guarda en $_mainCurrency para consistencia\n\n📊 Las estadísticas convierten todo a $_mainCurrency para comparar correctamente",
+                        description: "Cuando agregas dinero:\n\n💱 Se convierte usando tasas oficiales del BCV\n🔄 El fondo de emergencia siempre se guarda en $_mainCurrency\n📊 Estadísticas consistentes",
                         action: "Todo en una sola moneda",
                         color: Colors.amber.shade800,
                       ),
                       _buildTutorialPage(
                         icon: Icons.settings,
                         title: "AJUSTES Y SEGURIDAD",
-                        description: "Personaliza tu experiencia:\n\n🔒 Autenticación biométrica (huella/rostro)\n💰 Ajustar saldos manualmente\n🏦 Modificar fondo de emergencia\n🌎 Cambiar moneda principal\n🧹 Limpiar historial\n🔄 Resetear app (borra todo)\n📤 Exportar datos (GDPR)\n🔐 Política de privacidad",
+                        description: "Personaliza tu experiencia:\n\n🔒 Autenticación biométrica\n💰 Ajustar saldos\n🏦 Fondo de emergencia\n🌎 Cambiar moneda principal\n🧹 Limpiar historial\n🔄 Resetear app\n📤 Exportar datos",
                         action: "Tú controlas Ziro",
                         color: Colors.grey.shade800,
                       ),
