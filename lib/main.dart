@@ -1,9 +1,7 @@
 /// ***************************************************************
 ///  APP: ZIRO
 ///  AUTHOR: Jeroguez
-///  VERSION: 2.4 COMPLETA (Ahorro Real + Estadísticas Limpias + Euro)
-///  API BCV: https://bcv-api.onrender.com/api/rates/all
-///  ACTUALIZACIÓN DIARIA AUTOMÁTICA
+///  VERSION: 2.4
 /// ***************************************************************
 
 import 'package:flutter/material.dart';
@@ -135,98 +133,85 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
     return double.tryParse(normalized) ?? 0.0;
   }
 
-  // ==================== ACTUALIZACIÓN DE TASAS BCV (API PRINCIPAL) ====================
+  // ==================== ACTUALIZACIÓN DE TASAS BCV (MÚLTIPLES FUENTES) ====================
   Future<void> _updateRates() async {
     if (_mainCurrency != "Bs") return;
 
-    // API PRINCIPAL: BCV API OnRender
-    try {
-      final response = await http.get(
-        Uri.parse('https://bcv-api.onrender.com/api/rates/all'),
-      ).timeout(const Duration(seconds: 15));
+    // Lista de APIs en orden de prioridad
+    final List<Map<String, dynamic>> apis = [
+      {
+        'name': 'PydolarVenezuela',
+        'url': 'https://pydolarvenezuela-api.onrender.com/api/v1/bcv',
+        'getUsd': (data) => data['USD']?['price']?.toDouble(),
+        'getEur': (data) => data['EUR']?['price']?.toDouble(),
+      },
+      {
+        'name': 'BCV API (OnRender)',
+        'url': 'https://bcv-api.onrender.com/api/rates/all',
+        'getUsd': (data) => data['USD']?['rate']?.toDouble(),
+        'getEur': (data) => data['EUR']?['rate']?.toDouble(),
+      },
+      {
+        'name': 'BCV API Latest',
+        'url': 'https://bcv-api.onrender.com/api/rates/latest',
+        'getUsd': (data) => data['USD']?.toDouble(),
+        'getEur': (data) => data['EUR']?.toDouble(),
+      },
+      {
+        'name': 'Fluentax',
+        'url': 'https://api.fluentax.com/exchange-rates/banks/central-bank-of-venezuela/latest',
+        'getUsd': (data) => data['rates']?['USD']?['rate']?.toDouble(),
+        'getEur': (data) => data['rates']?['EUR']?['rate']?.toDouble(),
+      },
+    ];
 
-      if (mounted && response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+    bool actualizado = false;
 
-        if (data['USD'] != null && data['USD']['rate'] != null) {
-          setState(() {
-            _dollarPriceBCV = data['USD']['rate'].toDouble();
-            if (data['EUR'] != null && data['EUR']['rate'] != null) {
-              _euroPrice = data['EUR']['rate'].toDouble();
-            } else {
-              _euroPrice = _dollarPriceBCV * 1.16;
-            }
-          });
-          _save();
-          print("✅ Tasas BCV actualizadas (API principal):");
-          print("   🇺🇸 USD: $_dollarPriceBCV Bs");
-          print("   🇪🇺 EUR: $_euroPrice Bs");
-          return;
+    for (var api in apis) {
+      try {
+        final response = await http.get(
+          Uri.parse(api['url']),
+        ).timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+
+          final double? usd = api['getUsd'](data);
+          final double? eur = api['getEur'](data);
+
+          if (usd != null && usd > 0) {
+            setState(() {
+              _dollarPriceBCV = usd;
+              _euroPrice = eur ?? (usd * 1.16);
+            });
+            _save();
+            actualizado = true;
+            print("✅ Tasas actualizadas desde: ${api['name']}");
+            print("   🇺🇸 USD: $_dollarPriceBCV Bs");
+            print("   🇪🇺 EUR: $_euroPrice Bs");
+            break;
+          }
         }
+      } catch (e) {
+        print("❌ Error en ${api['name']}: $e");
       }
-    } catch (e) {
-      print("❌ Error en API principal: $e");
     }
 
-    // API RESERVA 1: PydolarVenezuela
-    try {
-      final response = await http.get(
-        Uri.parse('https://pydolarvenezuela-api.onrender.com/api/v1/bcv'),
-      ).timeout(const Duration(seconds: 10));
-
-      if (mounted && response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        if (data['USD'] != null && data['USD']['price'] != null) {
-          setState(() {
-            _dollarPriceBCV = data['USD']['price'].toDouble();
-            _euroPrice = data['EUR']['price'].toDouble();
-          });
-          _save();
-          print("✅ Tasas BCV actualizadas (API reserva 1):");
-          print("   🇺🇸 USD: $_dollarPriceBCV Bs");
-          print("   🇪🇺 EUR: $_euroPrice Bs");
-          return;
-        }
+    // Si ninguna API funciona, mantener las tasas guardadas
+    if (!actualizado && mounted) {
+      // Si las tasas son 1.0 (valores por defecto), usar respaldo
+      if (_dollarPriceBCV == 1.0 || _dollarPriceBCV == 0) {
+        setState(() {
+          // Tasas del BCV actualizadas (20/05/2026)
+          _dollarPriceBCV = 520.91;
+          _euroPrice = 604.15;
+        });
+        _save();
+        print("⚠️ Usando tasas de respaldo BCV: USD=$_dollarPriceBCV, EUR=$_euroPrice");
+        print("📱 Conéctate a internet para obtener tasas actualizadas");
+      } else {
+        print("📱 Usando tasas guardadas anteriormente: USD=$_dollarPriceBCV, EUR=$_euroPrice");
       }
-    } catch (e) {
-      print("❌ Error en API reserva 1: $e");
-    }
-
-    // API RESERVA 2: Fluentax
-    try {
-      final response = await http.get(
-        Uri.parse('https://api.fluentax.com/exchange-rates/banks/central-bank-of-venezuela/latest'),
-      ).timeout(const Duration(seconds: 10));
-
-      if (mounted && response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        if (data['rates'] != null && data['rates']['USD'] != null) {
-          setState(() {
-            _dollarPriceBCV = data['rates']['USD']['rate'].toDouble();
-            if (data['rates']['EUR'] != null) {
-              _euroPrice = data['rates']['EUR']['rate'].toDouble();
-            } else {
-              _euroPrice = _dollarPriceBCV * 1.16;
-            }
-          });
-          _save();
-          print("✅ Tasas BCV actualizadas (API reserva 2):");
-          print("   🇺🇸 USD: $_dollarPriceBCV Bs");
-          print("   🇪🇺 EUR: $_euroPrice Bs");
-          return;
-        }
-      }
-    } catch (e) {
-      print("❌ Error en API reserva 2: $e");
-    }
-
-    // Si todo falla, mantener las tasas previamente guardadas
-    if (mounted) {
-      print("⚠️ No se pudieron actualizar las tasas. Manteniendo valores anteriores.");
-      print("   USD: $_dollarPriceBCV Bs");
-      print("   EUR: $_euroPrice Bs");
     }
   }
 
@@ -264,8 +249,8 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
         _initialMain = p.getDouble('u_main_val') ?? 0.0;
         _initialSec = p.getDouble('u_sec_val') ?? 0.0;
         _emergencyFund = p.getDouble('u_emergency') ?? 0.0;
-        _dollarPriceBCV = p.getDouble('u_dollar_bcv') ?? 1.0;
-        _euroPrice = p.getDouble('u_euro') ?? 1.0;
+        _dollarPriceBCV = p.getDouble('u_dollar_bcv') ?? 520.91;
+        _euroPrice = p.getDouble('u_euro') ?? 604.15;
         _isFirstTime = _userName.isEmpty;
 
         _tutorialCompleted = p.getBool('tutorial_completed') ?? false;
@@ -374,8 +359,8 @@ class ZiroAppState extends State<ZiroApp> with TickerProviderStateMixin {
               _buildWhatsNewItem(
                 icon: Icons.speed,
                 color: Colors.orange,
-                title: "⚡ Más rápido y confiable",
-                description: "Mejor manejo de errores y tasas de respaldo si no hay internet.",
+                title: "⚡ Múltiples fuentes",
+                description: "Ziro usa 4 APIs diferentes para garantizar que siempre tengas las tasas actualizadas.",
               ),
               const Divider(),
               const SizedBox(height: 16),
