@@ -3,8 +3,19 @@
 [![Flutter](https://img.shields.io/badge/Flutter-3.0+-blue.svg)](https://flutter.dev)
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Dart](https://img.shields.io/badge/Dart-3.0+-blue.svg)](https://dart.dev)
+[![Version](https://img.shields.io/badge/Version-2.4.0-blue.svg)](https://github.com/Jeroguez/Ziro-app/releases)
 
 Ziro es una aplicación móvil de finanzas personales desarrollada en **Flutter** que permite gestionar ingresos, gastos y ahorros con tasas de cambio oficiales del **Banco Central de Venezuela (BCV)** actualizadas automáticamente.
+
+---
+
+## 📱 Descargar APK
+
+[![Descargar APK](https://img.shields.io/badge/📱_Descargar_APK-v2.4.0-brightgreen?style=for-the-badge&logo=android)](https://github.com/Jeroguez/Ziro-app/releases/download/v2.4.0/app-release.apk)
+
+📲 **Descarga la última versión de Ziro para Android**
+
+> ⚠️ **Nota:** Si tu teléfono te pide "Instalar desde orígenes desconocidos", actívalo temporalmente para instalar la app.
 
 ---
 
@@ -122,7 +133,7 @@ Si una API falla, automáticamente usa la siguiente. ¡Nunca te quedarás sin ta
 
 ---
 
-## 🚀 Instalación
+## 🚀 Instalación (Para desarrolladores)
 
 ```bash
 # Clonar el repositorio
