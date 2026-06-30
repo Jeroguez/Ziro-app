@@ -14,29 +14,29 @@ Ziro es una aplicación móvil de finanzas personales desarrollada en **Flutter*
   <table>
     <tr>
       <td align="center">
-        <img src="https://raw.githubusercontent.com/Jerougez/Ziro-app/main/screenshots/home.png" width="250" alt="Pantalla de inicio">
+        <img src="https://raw.githubusercontent.com/Jeroguez/Ziro-app/main/screenshots/home.jpeg" width="250" alt="Pantalla de inicio">
         <br><b>Pantalla de inicio</b>
       </td>
       <td align="center">
-        <img src="https://raw.githubusercontent.com/Jerougez/Ziro-app/main/screenshots/stats.png" width="250" alt="Estadísticas mensuales">
+        <img src="https://raw.githubusercontent.com/Jeroguez/Ziro-app/main/screenshots/stats.jpeg" width="250" alt="Estadísticas mensuales">
         <br><b>Estadísticas mensuales</b>
       </td>
       <td align="center">
-        <img src="https://raw.githubusercontent.com/Jerougez/Ziro-app/main/screenshots/entry.png" width="250" alt="Nuevo registro">
+        <img src="https://raw.githubusercontent.com/Jeroguez/Ziro-app/main/screenshots/entry.jpeg" width="250" alt="Nuevo registro">
         <br><b>Nuevo registro</b>
       </td>
     </tr>
     <tr>
       <td align="center">
-        <img src="https://raw.githubusercontent.com/Jerougez/Ziro-app/main/screenshots/goals.png" width="250" alt="Metas de ahorro">
+        <img src="https://raw.githubusercontent.com/Jeroguez/Ziro-app/main/screenshots/goals.jpeg" width="250" alt="Metas de ahorro">
         <br><b>Metas de ahorro</b>
       </td>
       <td align="center">
-        <img src="https://raw.githubusercontent.com/Jerougez/Ziro-app/main/screenshots/emergency.png" width="250" alt="Fondo de emergencia">
+        <img src="https://raw.githubusercontent.com/Jeroguez/Ziro-app/main/screenshots/emergency.jpeg" width="250" alt="Fondo de emergencia">
         <br><b>Fondo de emergencia</b>
       </td>
       <td align="center">
-        <img src="https://raw.githubusercontent.com/Jerougez/Ziro-app/main/screenshots/settings.png" width="250" alt="Pantalla de ajustes">
+        <img src="https://raw.githubusercontent.com/Jeroguez/Ziro-app/main/screenshots/settings.jpeg" width="250" alt="Pantalla de ajustes">
         <br><b>Pantalla de ajustes</b>
       </td>
     </tr>
@@ -126,7 +126,7 @@ Si una API falla, automáticamente usa la siguiente. ¡Nunca te quedarás sin ta
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/Jerougez/Ziro-app.git
+git clone https://github.com/Jeroguez/Ziro-app.git
 
 # Entrar al directorio
 cd Ziro-app
